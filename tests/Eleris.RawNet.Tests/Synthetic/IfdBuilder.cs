@@ -4,7 +4,7 @@ using System.Text;
 namespace Eleris.RawNet.Tests.Synthetic;
 
 /// <summary>Builds one little-endian TIFF directory, with the values that do not fit in the entry stored right after it.</summary>
-internal sealed class IfdBuilder
+internal sealed class IfdBuilder(bool bigEndian = false)
 {
     private const int ByteType = 1, AsciiType = 2, ShortType = 3, LongType = 4, RationalType = 5, UndefinedType = 7;
 
@@ -33,7 +33,7 @@ internal sealed class IfdBuilder
         byte[] bytes = new byte[values.Length * 2];
         for (int i = 0; i < values.Length; i++)
         {
-            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(i * 2), values[i]);
+            Put16(bytes.AsSpan(i * 2), values[i]);
         }
 
         return bytes;
@@ -48,7 +48,7 @@ internal sealed class IfdBuilder
         byte[] bytes = new byte[v.Length * 4];
         for (int i = 0; i < v.Length; i++)
         {
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i * 4), v[i]);
+            Put32(bytes.AsSpan(i * 4), v[i]);
         }
 
         return bytes;
@@ -59,8 +59,8 @@ internal sealed class IfdBuilder
         byte[] bytes = new byte[values.Length * 8];
         for (int i = 0; i < values.Length; i++)
         {
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i * 8), values[i].Numerator);
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan((i * 8) + 4), values[i].Denominator);
+            Put32(bytes.AsSpan(i * 8), values[i].Numerator);
+            Put32(bytes.AsSpan((i * 8) + 4), values[i].Denominator);
         }
 
         return bytes;
@@ -70,15 +70,15 @@ internal sealed class IfdBuilder
     public byte[] Serialize(long offset)
     {
         byte[] buffer = new byte[Size];
-        BinaryPrimitives.WriteUInt16LittleEndian(buffer, (ushort)_entries.Count);
+        Put16(buffer, (ushort)_entries.Count);
         int dataPosition = 2 + (12 * _entries.Count) + 4;
         int index = 0;
         foreach (Entry entry in _entries.OrderBy(e => e.Tag))
         {
             Span<byte> slot = buffer.AsSpan(2 + (12 * index++), 12);
-            BinaryPrimitives.WriteUInt16LittleEndian(slot, (ushort)entry.Tag);
-            BinaryPrimitives.WriteUInt16LittleEndian(slot[2..], (ushort)entry.Type);
-            BinaryPrimitives.WriteUInt32LittleEndian(slot[4..], (uint)entry.Count);
+            Put16(slot, (ushort)entry.Tag);
+            Put16(slot[2..], (ushort)entry.Type);
+            Put32(slot[4..], (uint)entry.Count);
             byte[] value = entry.Value();
             if (value.Length != entry.ByteLength)
             {
@@ -91,7 +91,7 @@ internal sealed class IfdBuilder
             }
             else
             {
-                BinaryPrimitives.WriteUInt32LittleEndian(slot[8..], (uint)(offset + dataPosition));
+                Put32(slot[8..], (uint)(offset + dataPosition));
                 value.CopyTo(buffer.AsSpan(dataPosition));
                 dataPosition += Even(value.Length);
             }
@@ -109,6 +109,30 @@ internal sealed class IfdBuilder
 
         _entries.Add(new Entry(tag, type, count, value));
         return this;
+    }
+
+    private void Put16(Span<byte> destination, ushort value)
+    {
+        if (bigEndian)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(destination, value);
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(destination, value);
+        }
+    }
+
+    private void Put32(Span<byte> destination, uint value)
+    {
+        if (bigEndian)
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(destination, value);
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(destination, value);
+        }
     }
 
     private static int Even(int length) => (length + 1) & ~1;
