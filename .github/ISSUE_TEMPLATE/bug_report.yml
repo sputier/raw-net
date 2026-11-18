@@ -1,0 +1,49 @@
+name: Bug report
+description: The library gives a wrong result, fails on a valid file, or behaves badly on a file
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A file that crashes the library, makes it allocate far more than its size justifies or run for a long time is a security
+        problem: do not post it here, follow [SECURITY.md](https://github.com/sputier/raw-net/blob/main/SECURITY.md).
+        A raw file holds personal data (GPS position, serial number, date, embedded preview): do not attach one you are not
+        allowed to share.
+  - type: input
+    id: version
+    attributes:
+      label: Version of Eleris.RawNet
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: .NET version and operating system
+      placeholder: ".NET 10.0.x, Windows 11 x64 / Ubuntu 24.04 arm64"
+    validations:
+      required: true
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model and settings
+      description: The model, the bit depth and the compression the file was shot with, if you know them.
+      placeholder: "Nikon Z 6, NEF 14-bit lossless compressed"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Smallest code that shows it
+      render: csharp
+    validations:
+      required: true
+  - type: textarea
+    id: file
+    attributes:
+      label: The file
+      description: Say how it was produced, or attach it if you are allowed to share it (the first bytes of the file are often enough).
