@@ -27,7 +27,7 @@ jobs:
           global-json-file: global.json
       - name: Build (warnings are errors)
         run: dotnet build Eleris.RawNet.slnx -c Release
-      - name: Test (tests on real camera files are skipped: no sample folder here)
+      - name: Test (the tests on real camera files are skipped, there is no sample folder here)
         run: dotnet test Eleris.RawNet.slnx -c Release --no-build
 
   checks:
