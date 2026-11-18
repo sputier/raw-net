@@ -10,6 +10,18 @@ public class RawFileTests
         return raw.Metadata;
     }
 
+    // Everything the library can read from a file: its metadata and every preview (damage may show only when the preview is read).
+    private static RawMetadata ReadEverything(byte[] file)
+    {
+        using RawFile raw = RawFile.Open(file);
+        foreach (RawPreview preview in raw.Previews)
+        {
+            raw.ReadPreviewJpeg(preview);
+        }
+
+        return raw.Metadata;
+    }
+
     [Fact]
     public void The_metadata_of_a_file_describes_the_shot_and_the_raw_image()
     {
@@ -281,7 +293,7 @@ public class RawFileTests
     [InlineData(true)]
     public void Boundary_values_in_every_field_of_the_structure_never_fail_with_anything_but_a_RawException(bool bigEndian)
     {
-        byte[] original = SyntheticNef.Build(new SyntheticNefOptions { RawWidth = 8, RawHeight = 4, BigEndian = bigEndian, SmallCfaSubImage = true });
+        byte[] original = SyntheticNef.Build(new SyntheticNefOptions { RawWidth = 8, RawHeight = 4, BigEndian = bigEndian, SmallCfaSubImage = true, MakerNotePreviewJpeg = [0xFF, 0xD8, 1, 2, 0xFF, 0xD9] });
         uint[] values = [0, 1, 0x7FFF, 0xFFFF, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 64, 4096];
         var watch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -313,7 +325,7 @@ public class RawFileTests
                         System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(target, value);
                     }
 
-                    Exception? error = Record.Exception(() => Read(file));
+                    Exception? error = Record.Exception(() => ReadEverything(file));
                     Assert.True(error is null or RawException, $"position {position}, value {value:X}, width {width}: {error?.GetType().Name}: {error?.Message}");
                 }
             }
@@ -356,7 +368,7 @@ public class RawFileTests
     [InlineData(true)]
     public void Damaging_bytes_never_fails_with_anything_but_a_RawException(bool bigEndian)
     {
-        byte[] original = SyntheticNef.Build(new SyntheticNefOptions { RawWidth = 8, RawHeight = 4, BigEndian = bigEndian });
+        byte[] original = SyntheticNef.Build(new SyntheticNefOptions { RawWidth = 8, RawHeight = 4, BigEndian = bigEndian, MakerNotePreviewJpeg = [0xFF, 0xD8, 1, 2, 0xFF, 0xD9] });
         var random = new Random(12345);
 
         for (int iteration = 0; iteration < 5000; iteration++)
@@ -368,7 +380,7 @@ public class RawFileTests
                 file[random.Next(file.Length)] = (byte)random.Next(256);
             }
 
-            Exception? error = Record.Exception(() => Read(file));
+            Exception? error = Record.Exception(() => ReadEverything(file));
             Assert.True(error is null or RawException, $"iteration {iteration}: {error?.GetType().Name}: {error?.Message}");
         }
     }

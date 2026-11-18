@@ -36,8 +36,19 @@ Console.WriteLine($"{m.Model}, ISO {m.Iso}, {m.ExposureTimeSeconds} s, {m.ImageW
 fails with a `RawException` (`UnsupportedFormatException`, `UnsupportedCameraException`, `CorruptRawFileException`...), and with
 nothing else; an unreadable file fails with the usual `IOException`.
 
-What is implemented, and what is next, is tracked in the [issues](https://github.com/sputier/raw-net/issues): reading the
-metadata works today; the embedded preview and the decoding of the raw mosaic come next.
+The embedded JPEG previews are read the same way, without decoding anything:
+
+```csharp
+byte[]? jpeg = file.ReadPreviewJpeg();                      // the largest preview, null if the file has none
+if (file.Previews.Count > 0)
+{
+    byte[] buffer = new byte[file.Previews[0].ByteCount];     // or into your own buffer, without allocating
+    int written = file.ReadPreviewJpeg(file.Previews[0], buffer);
+}
+```
+
+What is implemented, and what is next, is tracked in the [issues](https://github.com/sputier/raw-net/issues): the metadata and the
+previews work today; the decoding of the raw mosaic comes next.
 
 ## Build and test
 

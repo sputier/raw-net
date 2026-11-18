@@ -65,6 +65,9 @@ internal sealed record SyntheticNefOptions
     /// <summary>True to add a small reduced raw image (16 x 8, 12 bit) as the first sub-directory, as the camera does.</summary>
     public bool SmallCfaSubImage { get; init; }
 
+    /// <summary>A JPEG stored in the MakerNote, as the camera does for its smallest preview; null for none.</summary>
+    public byte[]? MakerNotePreviewJpeg { get; init; }
+
     /// <summary>The bytes of the raw strip; by default a repeatable pattern of <c>RawWidth * RawHeight * 2</c> bytes.</summary>
     public byte[]? RawStrip { get; init; }
 
@@ -223,11 +226,23 @@ internal static class SyntheticNef
             .Shorts(0x3D, options.BlackLevel)
             .Shorts(0x45, options.ActiveArea)
             .Longs(0xA7, options.ShutterCount);
+        uint previewIfdOffset = 0, previewJpegOffset = 0;
+        IfdBuilder? previewIfd = null;
+        if (options.MakerNotePreviewJpeg is { } noteJpeg)
+        {
+            directory.LazyLongs(0x11, 1, () => [previewIfdOffset]);
+            previewIfd = new IfdBuilder(options.BigEndian)
+                .LazyLongs(513, 1, () => [previewJpegOffset])
+                .Longs(514, (uint)noteJpeg.Length);
+            previewIfdOffset = (uint)(8 + directory.Size);
+            previewJpegOffset = previewIfdOffset + (uint)previewIfd.Size;
+        }
         byte[] header = [(byte)'N', (byte)'i', (byte)'k', (byte)'o', (byte)'n', 0, 2, 0x11, 0, 0];
         byte[] tiffHeader = options.BigEndian
             ? [(byte)'M', (byte)'M', 0, 42, 0, 0, 0, 8]
             : [(byte)'I', (byte)'I', 42, 0, 8, 0, 0, 0];
-        return [.. header, .. tiffHeader, .. directory.Serialize(8)];
+        byte[] note = [.. header, .. tiffHeader, .. directory.Serialize(8)];
+        return previewIfd is null ? note : [.. note, .. previewIfd.Serialize(previewIfdOffset), .. options.MakerNotePreviewJpeg!, .. new byte[options.MakerNotePreviewJpeg!.Length % 2]];
     }
 
     private static byte[] DefaultStrip(SyntheticNefOptions options)
