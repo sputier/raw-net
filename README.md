@@ -21,6 +21,24 @@ Targets: net10.0, no dependency, no native code, compatible with trimming and Na
 - **Speed**: allocation budgets and timings are tested, and measured with BenchmarkDotNet (in `benchmarks/`, never part of the
   package).
 
+## Usage
+
+```csharp
+using Eleris.RawNet;
+
+// Only the structure of the file is read, a few small reads: no pixel is decoded.
+using RawFile file = RawFile.Open("DSC_0001.NEF");
+RawMetadata m = file.Metadata;
+Console.WriteLine($"{m.Model}, ISO {m.Iso}, {m.ExposureTimeSeconds} s, {m.ImageWidth} x {m.ImageHeight}, {m.CfaPattern}");
+```
+
+`RawFile.ReadMetadata(path)` does the same and closes the file. A file that is not a NEF, comes from another maker or is damaged
+fails with a `RawException` (`UnsupportedFormatException`, `UnsupportedCameraException`, `CorruptRawFileException`...), and with
+nothing else; an unreadable file fails with the usual `IOException`.
+
+What is implemented, and what is next, is tracked in the [issues](https://github.com/sputier/raw-net/issues): reading the
+metadata works today; the embedded preview and the decoding of the raw mosaic come next.
+
 ## Build and test
 
 You need the .NET SDK pinned by [`global.json`](global.json).
