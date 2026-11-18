@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <Description>Pure managed .NET library to read camera raw files (Nikon NEF first): metadata, previews and the raw sensor mosaic.</Description>
+  </PropertyGroup>
+
+  <!-- NuGet package. The version is the single source of the release. -->
+  <PropertyGroup>
+    <PackageId>Eleris.RawNet</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Sébastien Putier</Authors>
+    <Copyright>Copyright (c) 2026 Sébastien Putier</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageTags>raw;nef;nikon;camera-raw;photography;image;metadata;bayer</PackageTags>
+    <PackageProjectUrl>https://github.com/sputier/raw-net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sputier/raw-net.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Eleris.RawNet.Tests" />
+    <InternalsVisibleTo Include="Eleris.RawNet.Benchmarks" />
+  </ItemGroup>
+
+</Project>

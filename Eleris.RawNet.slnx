@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Eleris.RawNet/Eleris.RawNet.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Eleris.RawNet.Tests/Eleris.RawNet.Tests.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Eleris.RawNet.Benchmarks/Eleris.RawNet.Benchmarks.csproj" />
+  </Folder>
+</Solution>

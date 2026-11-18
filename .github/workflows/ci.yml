@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Build (warnings are errors)
+        run: dotnet build Eleris.RawNet.slnx -c Release
+      - name: Test (the tests on real camera files are skipped, there is no sample folder here)
+        run: dotnet test Eleris.RawNet.slnx -c Release --no-build
+
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Text files use LF (see .gitattributes)
+        run: |
+          if git ls-files --eol | grep -E "(i|w)/(crlf|mixed)"; then
+            echo "::error::Some text files have CRLF or mixed line endings"
+            exit 1
+          fi
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: The code follows .editorconfig
+        run: dotnet format Eleris.RawNet.slnx --verify-no-changes
+      - name: No unsafe code and no native interop in the library
+        run: |
+          if grep -rnE --include=*.cs --exclude-dir=obj --exclude-dir=bin "\b(DllImport|LibraryImport)\b" src/ \
+            || grep -rn "AllowUnsafeBlocks" src/ Directory.Build.props; then
+            echo "::error::Unsafe code or native interop is in the library"
+            exit 1
+          fi
+      - name: No camera file in the repository
+        run: |
+          if git ls-files | grep -iE "\.(nef|nrw|cr2|cr3|arw|dng|raf|orf|rw2)$"; then
+            echo "::error::A camera file is committed: use the synthetic builder of the tests"
+            exit 1
+          fi
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Pack (package validation is on)
+        run: dotnet pack src/Eleris.RawNet -c Release -o artifacts
+      - name: The package holds the library, its documentation file and the readme, and has no dependency
+        run: |
+          unzip -Z1 artifacts/Eleris.RawNet.*.nupkg | tee listing.txt
+          if unzip -Z1 artifacts/Eleris.RawNet.*.nupkg | grep -vE '^(lib/net10\.0/Eleris\.RawNet\.(dll|xml)|PACKAGE\.md|Eleris\.RawNet\.nuspec|\[Content_Types\]\.xml|_rels/\.rels|package/.*)$'; then
+            echo "::error::Unexpected file in the package"
+            exit 1
+          fi
+          grep -qx "lib/net10.0/Eleris.RawNet.dll" listing.txt
+          grep -qx "lib/net10.0/Eleris.RawNet.xml" listing.txt
+          grep -qx "PACKAGE.md" listing.txt
+          if unzip -p artifacts/Eleris.RawNet.*.nupkg Eleris.RawNet.nuspec | grep -q "<dependency"; then
+            echo "::error::The package has dependencies"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: artifacts/
+          if-no-files-found: error
