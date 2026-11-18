@@ -1,0 +1,10 @@
+# Text files are LF in the repository and in the working tree, whatever core.autocrlf says.
+* text=auto eol=lf
+
+# Binary files: never converted.
+*.nef binary
+*.NEF binary
+*.jpg binary
+*.png binary
+*.nupkg binary
+*.snupkg binary
