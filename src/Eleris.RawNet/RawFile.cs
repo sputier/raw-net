@@ -18,15 +18,67 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
 
     private readonly ByteSource _source;
     private readonly NefStructure _structure;
+    private int _disposed;
 
     private RawFile(ByteSource source, NefStructure structure)
     {
         _source = source;
         _structure = structure;
+        var previews = new RawPreview[structure.Previews.Count];
+        for (int i = 0; i < previews.Length; i++)
+        {
+            previews[i] = new RawPreview(i, structure.Previews[i].Offset, (int)structure.Previews[i].Length);
+        }
+
+        Previews = Array.AsReadOnly(previews);
     }
 
     /// <summary>What the file says about the shot and about its raw image.</summary>
     public RawMetadata Metadata => _structure.Metadata;
+
+    /// <summary>The JPEG previews the library finds in the file (in its sub-directories and in the Nikon MakerNote) that lie entirely inside it, from the largest to the smallest in bytes; empty if there is none.</summary>
+    public IReadOnlyList<RawPreview> Previews { get; }
+
+    /// <summary>Reads the largest JPEG preview of the file.</summary>
+    /// <returns>The bytes of the JPEG stream, or null if the file holds no preview.</returns>
+    /// <exception cref="IOException">The file cannot be read.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
+    /// <exception cref="CorruptRawFileException">The data at the place of the preview does not start with a JPEG start-of-image marker.</exception>
+    public byte[]? ReadPreviewJpeg() => Previews.Count == 0 ? null : ReadPreviewJpeg(Previews[0]);
+
+    /// <summary>Reads one JPEG preview of the file.</summary>
+    /// <param name="preview">A preview of <see cref="Previews"/>.</param>
+    /// <returns>The bytes of the JPEG stream.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="preview"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="preview"/> does not belong to this file.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
+    /// <exception cref="CorruptRawFileException">The data at the place of the preview does not start with a JPEG start-of-image marker.</exception>
+    public byte[] ReadPreviewJpeg(RawPreview preview)
+    {
+        CheckPreview(preview);
+        byte[] bytes = GC.AllocateUninitializedArray<byte>(preview.ByteCount);
+        ReadPreview(preview, bytes);
+        return bytes;
+    }
+
+    /// <summary>Reads one JPEG preview of the file into a buffer of the caller, without allocating (a preview of several megabytes would otherwise be allocated on the large object heap); size the buffer with <see cref="RawPreview.ByteCount"/>.</summary>
+    /// <param name="preview">A preview of <see cref="Previews"/>.</param>
+    /// <param name="destination">The buffer; it must hold at least <see cref="RawPreview.ByteCount"/> bytes.</param>
+    /// <returns>The number of bytes written, which is <see cref="RawPreview.ByteCount"/>.</returns>
+    /// <exception cref="ArgumentException"><paramref name="preview"/> does not belong to this file, or <paramref name="destination"/> is too small.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
+    /// <exception cref="CorruptRawFileException">The data at the place of the preview does not start with a JPEG start-of-image marker.</exception>
+    public int ReadPreviewJpeg(RawPreview preview, Span<byte> destination)
+    {
+        CheckPreview(preview);
+        if (destination.Length < preview.ByteCount)
+        {
+            throw new ArgumentException($"The buffer holds {destination.Length} bytes and the preview has {preview.ByteCount}.", nameof(destination));
+        }
+
+        ReadPreview(preview, destination[..preview.ByteCount]);
+        return preview.ByteCount;
+    }
 
     /// <summary>
     /// Opens a raw file from a path. The structure of the file is checked as a whole: a file cut inside its raw data fails with a
@@ -91,13 +143,46 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
     }
 
     /// <summary>Releases the file or the stream this object holds.</summary>
-    public void Dispose() => _source.Dispose();
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        {
+            _source.Dispose();
+        }
+    }
 
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
         Dispose();
         return ValueTask.CompletedTask;
+    }
+
+    private void CheckPreview(RawPreview preview)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ArgumentNullException.ThrowIfNull(preview);
+        if (preview.Index >= Previews.Count || !ReferenceEquals(Previews[preview.Index], preview))
+        {
+            throw new ArgumentException("The preview does not belong to this file.", nameof(preview));
+        }
+    }
+
+    private void ReadPreview(RawPreview preview, Span<byte> destination)
+    {
+        try
+        {
+            _source.ReadExactly(preview.Offset, destination);
+        }
+        catch (EndOfStreamException ex)
+        {
+            throw new CorruptRawFileException("The file ends inside a preview", preview.Offset, ex);
+        }
+
+        if (destination[0] != 0xFF || destination[1] != 0xD8)
+        {
+            throw new CorruptRawFileException("The preview is not a JPEG stream", preview.Offset);
+        }
     }
 
     private static RawFile Create(ByteSource source)

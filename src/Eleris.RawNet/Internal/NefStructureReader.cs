@@ -10,6 +10,9 @@ internal sealed class NefStructureReader : INefStructureReader
     private const ushort CfaDimensionTag = 33421, CfaPatternTag = 33422;
     private const ushort ExposureTimeTag = 33434, FNumberTag = 33437, IsoTag = 34855, DateTimeOriginalTag = 36867, OffsetTimeTag = 36880, OffsetTimeOriginalTag = 36881;
     private const ushort FocalLengthTag = 37386, MakerNoteTag = 37500, BodySerialTag = 42033, LensModelTag = 42036;
+    private const ushort JpegOffsetTag = 513, JpegLengthTag = 514;
+    private const int MaxPreviewBytes = 64 * 1024 * 1024;
+    private const ushort NikonPreviewTag = 0x11;
     private const ushort NikonSerialTag = 0x1D, NikonActiveAreaTag = 0x45, NikonShutterCountTag = 0xA7;
     private const int CfaPhotometric = 32803;
     private const int MaxSubDirectories = 64;
@@ -36,7 +39,8 @@ internal sealed class NefStructureReader : INefStructureReader
             throw new UnsupportedCameraException(make, model);
         }
 
-        RawImage raw = ReadRawImage(reader, main, source.Length);
+        var previews = new List<ByteRange>();
+        RawImage raw = ReadRawImage(reader, main, source.Length, previews);
         Ifd? exif = null;
         if (main.TryGet(ExifTag, out IfdEntry exifEntry) && reader.TryReadInteger(exifEntry, 0, out long exifOffset))
         {
@@ -45,6 +49,10 @@ internal sealed class NefStructureReader : INefStructureReader
 
         (TiffReader Reader, Ifd Directory)? makerNote = exif is not null ? ReadMakerNote(reader, exif) : null;
         RawRectangle activeArea = ReadActiveArea(makerNote, raw.Width, raw.Height);
+        if (makerNote is { } preview && preview.Directory.TryGet(NikonPreviewTag, out IfdEntry previewEntry) && preview.Reader.TryReadInteger(previewEntry, 0, out long previewOffset))
+        {
+            ReadMakerNotePreview(preview.Reader, previewOffset, source.Length, previews);
+        }
 
         // The clock offset must be the one of the date that is reported: OffsetTimeOriginal goes with DateTimeOriginal, OffsetTime with DateTime.
         string? dateText = Text(reader, exif, DateTimeOriginalTag);
@@ -88,12 +96,35 @@ internal sealed class NefStructureReader : INefStructureReader
             Compression = Enum.IsDefined<RawCompression>((RawCompression)raw.Compression) ? (RawCompression)raw.Compression : RawCompression.Unknown,
             CompressionCode = raw.Compression,
         };
-        return new NefStructure(metadata, raw.Strips);
+        return new NefStructure(metadata, raw.Strips, LargestFirst(previews));
     }
 
-    private sealed record RawImage(int Width, int Height, int Bits, int Compression, CfaPattern Pattern, RawStrip[] Strips);
+    // The previews, largest first, each place once (a preview can be listed by several directories).
+    internal static ByteRange[] LargestFirst(List<ByteRange> previews)
+    {
+        previews.Sort(static (a, b) => b.Length != a.Length ? b.Length.CompareTo(a.Length) : a.Offset.CompareTo(b.Offset));
+        int kept = 0;
+        for (int i = 0; i < previews.Count; i++)
+        {
+            if (kept == 0 || previews[i] != previews[kept - 1])
+            {
+                previews[kept++] = previews[i];
+            }
+        }
 
-    private static RawImage ReadRawImage(TiffReader reader, Ifd main, long fileLength)
+        if (kept == 0)
+        {
+            return [];
+        }
+
+        var result = new ByteRange[kept];
+        previews.CopyTo(0, result, 0, kept);
+        return result;
+    }
+
+    private sealed record RawImage(int Width, int Height, int Bits, int Compression, CfaPattern Pattern, ByteRange[] Strips);
+
+    private static RawImage ReadRawImage(TiffReader reader, Ifd main, long fileLength, List<ByteRange> previews)
     {
         if (!main.TryGet(SubIfdsTag, out IfdEntry subEntry))
         {
@@ -124,6 +155,7 @@ internal sealed class NefStructureReader : INefStructureReader
                 continue;
             }
 
+            TryAddPreview(reader, sub, reader.Origin, fileLength, previews);
             if (sub.TryGet(PhotometricTag, out IfdEntry photometric)
                 && reader.TryReadInteger(photometric, 0, out long value)
                 && value == CfaPhotometric
@@ -194,7 +226,34 @@ internal sealed class NefStructureReader : INefStructureReader
         };
     }
 
-    private static RawStrip[] ReadStrips(TiffReader reader, Ifd raw, long fileLength)
+    // A preview is a JPEG stream whose position and length a directory gives; offsets count from the origin of the reader. One that does not fit in the file is left out.
+    private static void TryAddPreview(TiffReader reader, Ifd directory, long origin, long fileLength, List<ByteRange> previews)
+    {
+        if (directory.TryGet(JpegOffsetTag, out IfdEntry offsetEntry)
+            && directory.TryGet(JpegLengthTag, out IfdEntry lengthEntry)
+            && reader.TryReadInteger(offsetEntry, 0, out long offset)
+            && reader.TryReadInteger(lengthEntry, 0, out long length)
+            && offset >= 0
+            && length is >= 2 and <= MaxPreviewBytes
+            && origin + offset <= fileLength - length)
+        {
+            previews.Add(new ByteRange(origin + offset, length));
+        }
+    }
+
+    private static void ReadMakerNotePreview(TiffReader noteReader, long directoryOffset, long fileLength, List<ByteRange> previews)
+    {
+        try
+        {
+            TryAddPreview(noteReader, noteReader.ReadIfd(noteReader.Origin + directoryOffset), noteReader.Origin, fileLength, previews);
+        }
+        catch (CorruptRawFileException)
+        {
+            // The note is optional: its preview is lost, not the file.
+        }
+    }
+
+    private static ByteRange[] ReadStrips(TiffReader reader, Ifd raw, long fileLength)
     {
         if (!raw.TryGet(StripOffsetsTag, out IfdEntry offsets) || !raw.TryGet(StripByteCountsTag, out IfdEntry counts))
         {
@@ -206,7 +265,7 @@ internal sealed class NefStructureReader : INefStructureReader
             throw new CorruptRawFileException("The raw image has an impossible number of strips");
         }
 
-        var strips = new RawStrip[offsets.Count];
+        var strips = new ByteRange[offsets.Count];
         for (int i = 0; i < strips.Length; i++)
         {
             if (!reader.TryReadInteger(offsets, i, out long offset) || !reader.TryReadInteger(counts, i, out long length))
@@ -219,7 +278,7 @@ internal sealed class NefStructureReader : INefStructureReader
                 throw new CorruptRawFileException("The raw data extends beyond the end of the file (the file is truncated)", offset);
             }
 
-            strips[i] = new RawStrip(offset, length);
+            strips[i] = new ByteRange(offset, length);
         }
 
         return strips;
