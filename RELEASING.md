@@ -18,11 +18,11 @@ key is stored on GitHub. The `publish` job exchanges the OIDC token of GitHub Ac
 
    A policy for a private repository is active for 7 days until a first publication gives nuget.org the identifiers of the
    repository; this repository is public, so the first publication makes it permanent.
-2. On GitHub, in *Settings > Environments*, create the environment `nuget`, add yourself as a **required reviewer** (every
-   publication then waits for your approval, whoever pushed the tag), and add the secret `NUGET_USER` to it: your nuget.org
+2. On GitHub, the environment `nuget` (*Settings > Environments*) exists and has the maintainer as **required reviewer**
+   (every publication waits for the approval, whoever pushed the tag). Add the secret `NUGET_USER` to it: your nuget.org
    **profile name**, not your e-mail address. It is the only value the workflow needs; it is not a credential.
-3. In *Settings > Rules > Rulesets*, protect the tags `v*` (creation and deletion restricted to the maintainers), so that
-   only they can start a publication.
+3. The ruleset *Protect version tags* (*Settings > Rules > Rulesets*) restricts the creation, the update and the deletion of
+   the tags `v*` to the repository administrators, so that only they can start a publication.
 
 ## Releasing a version
 
