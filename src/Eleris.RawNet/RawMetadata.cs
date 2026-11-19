@@ -70,6 +70,9 @@ public sealed record RawMetadata
     /// </summary>
     public required RawRectangle ActiveArea { get; init; }
 
+    /// <summary>The black level the camera recorded for the four photosites of the colour filter pattern, or null when the file holds none, or holds one that does not fit the samples of the image. It is only read for a red, green, green, blue pattern and 14 bit samples, the layout checked on camera files: for any other the order of the four values and their scale are not established.</summary>
+    public RawBlackLevel? BlackLevel { get; init; }
+
     /// <summary>The colour filter pattern from the top-left pixel of the raw image (not of the active area).</summary>
     public required CfaPattern CfaPattern { get; init; }
 
