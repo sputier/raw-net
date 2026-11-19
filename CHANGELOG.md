@@ -5,6 +5,10 @@ change between minor versions.
 
 ## Unreleased
 
+## 0.1.0
+
+The first release.
+
 ### Added
 
 - Repository foundations: licence, documentation, code of conduct, security policy, issue and pull request templates,
