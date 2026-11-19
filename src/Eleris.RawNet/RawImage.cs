@@ -6,7 +6,7 @@ namespace Eleris.RawNet;
 /// </summary>
 public sealed class RawImage
 {
-    internal RawImage(int width, int height, RawRectangle activeArea, CfaPattern cfaPattern, int bitsPerSample, RawBlackLevel? blackLevel, ushort[] mosaic)
+    internal RawImage(int width, int height, RawRectangle activeArea, CfaPattern cfaPattern, int bitsPerSample, RawBlackLevel? blackLevel, RawWhiteBalance? whiteBalance, ushort[] mosaic)
     {
         Width = width;
         Height = height;
@@ -14,6 +14,7 @@ public sealed class RawImage
         CfaPattern = cfaPattern;
         BitsPerSample = bitsPerSample;
         BlackLevel = blackLevel;
+        WhiteBalance = whiteBalance;
         Mosaic = mosaic;
     }
 
@@ -34,6 +35,9 @@ public sealed class RawImage
 
     /// <summary>The black level the camera recorded, or null when the file holds none or the library does not read it (see <see cref="RawMetadata.BlackLevel"/>); it is not subtracted from the samples.</summary>
     public RawBlackLevel? BlackLevel { get; }
+
+    /// <summary>The as-shot white balance, or null (see <see cref="RawMetadata.WhiteBalance"/>); it is not applied to the samples.</summary>
+    public RawWhiteBalance? WhiteBalance { get; }
 
     /// <summary>The samples, row after row, <see cref="Width"/> times <see cref="Height"/> of them.</summary>
     public ReadOnlyMemory<ushort> Mosaic { get; }

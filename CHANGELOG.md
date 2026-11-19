@@ -35,3 +35,7 @@ change between minor versions.
   each of the four photosites of the colour filter pattern (in the order of the pattern, which for a red, green, green, blue
   pattern is red, green, green, blue) and `At(column, row)`. It is null when the file holds none or one that does not fit the
   samples, and it is only read for a red, green, green, blue pattern and 14 bit samples (the layout checked on camera files). It is not subtracted from the samples. On the 570 real files of a Nikon Z 6 the four values are present and equal.
+- The white balance of the shot: `RawMetadata.WhiteBalance` and `RawImage.WhiteBalance`, a `RawWhiteBalance` with the
+  multipliers of the red, two green and blue photosites and where they were read (`RawWhiteBalanceSource`), taken from the plain
+  record of the Nikon MakerNote. It is null when the file holds none or one that is not plausible (non-positive, tiny or very large
+  multipliers). It is not applied to the samples. The record that Nikon cameras scramble with the serial number is not read yet.
