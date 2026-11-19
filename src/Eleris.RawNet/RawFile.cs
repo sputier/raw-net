@@ -95,7 +95,7 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
         RawMetadata metadata = Metadata;
         ushort[] mosaic = GC.AllocateUninitializedArray<ushort>(checked(metadata.ImageWidth * metadata.ImageHeight));
         DecodeSamples(mosaic, cancellationToken);
-        return new RawImage(metadata.ImageWidth, metadata.ImageHeight, metadata.ActiveArea, metadata.CfaPattern, metadata.BitsPerSample, mosaic);
+        return new RawImage(metadata.ImageWidth, metadata.ImageHeight, metadata.ActiveArea, metadata.CfaPattern, metadata.BitsPerSample, metadata.BlackLevel, mosaic);
     }
 
     /// <summary>Decodes the raw image into a buffer of the caller, row after row, without allocating the mosaic.</summary>

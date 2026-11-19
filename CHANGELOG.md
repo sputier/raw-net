@@ -31,3 +31,7 @@ change between minor versions.
   files of a Nikon Z 6 (every row decoded, every sample in range, the stream ending at the end of its strip), by an
   encoder-decoder round trip on synthetic files, and with damaged files. Decoding a 24-megapixel image into a reused buffer
   takes about 0.26 s and allocates nothing but a few bytes. The lossy variant is reported with an `UnsupportedCompressionException`.
+- The black level recorded by the camera: `RawMetadata.BlackLevel` and `RawImage.BlackLevel`, a `RawBlackLevel` with the value of
+  each of the four photosites of the colour filter pattern (in the order of the pattern, which for a red, green, green, blue
+  pattern is red, green, green, blue) and `At(column, row)`. It is null when the file holds none or one that does not fit the
+  samples, and it is only read for a red, green, green, blue pattern and 14 bit samples (the layout checked on camera files). It is not subtracted from the samples. On the 570 real files of a Nikon Z 6 the four values are present and equal.

@@ -13,7 +13,7 @@ internal sealed class NefStructureReader : INefStructureReader
     private const ushort JpegOffsetTag = 513, JpegLengthTag = 514;
     private const int MaxPreviewBytes = 64 * 1024 * 1024;
     private const ushort NikonPreviewTag = 0x11;
-    private const ushort NikonSerialTag = 0x1D, NikonActiveAreaTag = 0x45, NikonShutterCountTag = 0xA7, NikonCompressionTag = 0x96;
+    private const ushort NikonSerialTag = 0x1D, NikonActiveAreaTag = 0x45, NikonShutterCountTag = 0xA7, NikonCompressionTag = 0x96, NikonBlackLevelTag = 0x3D;
     private const int NikonHeaderBytes = 10;
     private const int CfaPhotometric = 32803;
     private const int MaxSubDirectories = 64;
@@ -108,6 +108,7 @@ internal sealed class NefStructureReader : INefStructureReader
             ImageWidth = raw.Width,
             ImageHeight = raw.Height,
             ActiveArea = activeArea,
+            BlackLevel = raw.Pattern == CfaPattern.Rggb && raw.Bits == 14 ? ReadBlackLevel(makerNote, raw.Bits) : null,
             CfaPattern = raw.Pattern,
             BitsPerSample = raw.Bits,
             Compression = Enum.IsDefined<RawCompression>((RawCompression)raw.Compression) ? (RawCompression)raw.Compression : RawCompression.Unknown,
@@ -346,6 +347,28 @@ internal sealed class NefStructureReader : INefStructureReader
 
         bool fits = v[0] >= 0 && v[1] >= 0 && v[2] > 0 && v[3] > 0 && v[0] + v[2] <= width && v[1] + v[3] <= height;
         return fits ? new RawRectangle((int)v[0], (int)v[1], (int)v[2], (int)v[3]) : whole;
+    }
+
+    // Four values, one per photosite of the 2 x 2 pattern. Only asked for the layout that was checked on camera files (a red, green, green, blue pattern and 14 bit samples): for another pattern the order of the values (by colour or by position) and for another depth their scale are not established; a missing, short or implausible record is no black level.
+    private static RawBlackLevel? ReadBlackLevel((TiffReader Reader, Ifd Directory)? note, int bits)
+    {
+        if (note is not { } n || !n.Directory.TryGet(NikonBlackLevelTag, out IfdEntry entry) || entry.Count != 4)
+        {
+            return null;
+        }
+
+        Span<int> v = stackalloc int[4];
+        for (int i = 0; i < 4; i++)
+        {
+            if (!n.Reader.TryReadInteger(entry, i, out long value) || value < 0 || value >= (1L << bits))
+            {
+                return null;
+            }
+
+            v[i] = (int)value;
+        }
+
+        return new RawBlackLevel(v[0], v[1], v[2], v[3]);
     }
 
     private static long? Integer(TiffReader reader, Ifd directory, ushort tag) =>
