@@ -73,6 +73,9 @@ public sealed record RawMetadata
     /// <summary>The black level the camera recorded for the four photosites of the colour filter pattern, or null when the file holds none, or holds one that does not fit the samples of the image. It is only read for a red, green, green, blue pattern and 14 bit samples, the layout checked on camera files: for any other the order of the four values and their scale are not established.</summary>
     public RawBlackLevel? BlackLevel { get; init; }
 
+    /// <summary>The as-shot white balance: the multipliers the camera would apply to the samples of each channel (read from the plain record of the Nikon MakerNote, the record holds them in the order red, blue, green, green), or null when the file holds none or one that is not plausible. The order of the red and blue values of the record is the documented one; it cannot be checked on near-neutral files. The samples are not changed by it.</summary>
+    public RawWhiteBalance? WhiteBalance { get; init; }
+
     /// <summary>The colour filter pattern from the top-left pixel of the raw image (not of the active area).</summary>
     public required CfaPattern CfaPattern { get; init; }
 
