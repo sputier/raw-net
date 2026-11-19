@@ -12,6 +12,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The synthetic file builder of the tests, compiled here too (no copy). -->
+    <Compile Include="..\..\tests\Eleris.RawNet.Tests\Synthetic\*.cs" Exclude="..\..\tests\Eleris.RawNet.Tests\Synthetic\SyntheticNefTests.cs" LinkBase="Synthetic" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Eleris.RawNet\Eleris.RawNet.csproj" />
   </ItemGroup>
 

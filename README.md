@@ -2,11 +2,11 @@
 
 A pure managed .NET library to read the raw files of digital cameras. The first supported format is the **Nikon NEF** of the
 Z 6: metadata without decoding any pixel, the embedded JPEG preview, and the raw sensor mosaic with what is needed to process
-it (colour filter pattern, active area, black and white levels, as-shot white balance). The sister library of
+it (colour filter pattern, active area, black level, as-shot white balance). The sister library of
 [Eleris.FitsNet](https://github.com/sputier/fits-net) and [Eleris.TiffNet](https://github.com/sputier/tiff-net).
 
-**Status: pre-release, under construction.** Nothing is published yet and the API is not stable before 1.0. The roadmap is in
-the [issues](https://github.com/sputier/raw-net/issues).
+**Status: first release (0.1.0).** The API is not stable before 1.0. The roadmap is in the
+[issues](https://github.com/sputier/raw-net/issues).
 
 Targets: net10.0, no dependency, no native code, compatible with trimming and NativeAOT.
 
@@ -14,12 +14,53 @@ Targets: net10.0, no dependency, no native code, compatible with trimming and Na
 
 - **Fast metadata**: capture date and time, exposure, ISO, camera, lens, image size and colour filter pattern, read without
   decoding the pixels.
-- **The raw mosaic as integers**, unscaled, with the active area, the black and white levels and the white balance as shot.
+- **The raw mosaic as integers**, unscaled, with the active area, the black level and the white balance as shot.
 - **The embedded preview**, cheaply.
 - **Typed errors**: an unsupported camera, an unsupported compression or a damaged file fails with a `RawException`, never
   with an unrelated exception, and a hostile file cannot exhaust the memory of the application.
 - **Speed**: allocation budgets and timings are tested, and measured with BenchmarkDotNet (in `benchmarks/`, never part of the
   package).
+
+## Usage
+
+```csharp
+using Eleris.RawNet;
+
+// Only the structure of the file is read, a few small reads: no pixel is decoded.
+using RawFile file = RawFile.Open("DSC_0001.NEF");
+RawMetadata m = file.Metadata;
+Console.WriteLine($"{m.Model}, ISO {m.Iso}, {m.ExposureTimeSeconds} s, {m.ImageWidth} x {m.ImageHeight}, {m.CfaPattern}");
+```
+
+`RawFile.ReadMetadata(path)` does the same and closes the file. A file that is not a NEF, comes from another maker or is damaged
+fails with a `RawException` (`UnsupportedFormatException`, `UnsupportedCameraException`, `CorruptRawFileException`...), and with
+nothing else; an unreadable file fails with the usual `IOException`.
+
+The embedded JPEG previews are read the same way, without decoding anything:
+
+```csharp
+byte[]? jpeg = file.ReadPreviewJpeg();                      // the largest preview, null if the file has none
+if (file.Previews.Count > 0)
+{
+    byte[] buffer = new byte[file.Previews[0].ByteCount];     // or into your own buffer, without allocating
+    int written = file.ReadPreviewJpeg(file.Previews[0], buffer);
+}
+```
+
+The raw image is decoded to its mosaic of 16-bit samples, unscaled (uncompressed, and the lossless Nikon compression of 12 and 14 bit images):
+
+```csharp
+RawImage image = file.Decode();                              // image.Mosaic, Width, Height, ActiveArea, CfaPattern
+ushort[] mine = new ushort[m.ImageWidth * m.ImageHeight];
+file.Decode(mine);                                           // or into a buffer you reuse
+```
+
+The black level and the as-shot white balance are on the metadata and on the image (`m.BlackLevel`, `m.WhiteBalance`, `image.BlackLevel`, `image.WhiteBalance`); they are not applied to the samples.
+
+## What is supported
+
+- **Nikon Z 6 NEF**: metadata, the embedded JPEG previews, the raw mosaic when it is uncompressed or lossless-compressed (12 and 14 bits), the black level (red, green, green, blue pattern, 14 bits) and the as-shot white balance of the plain record. Checked on 570 real files of a Z 6 (all of them lossless-compressed, 14 bits); the uncompressed and 12 bit paths are checked with synthetic files only.
+- **Not yet**: the lossy compression, the white level, the white balance of the scrambled record, other bodies and other makers. Each has an [issue](https://github.com/sputier/raw-net/issues); a file that needs one of them fails with a typed `RawException`, or gives a null value, never a wrong one.
 
 ## Build and test
 

@@ -50,6 +50,27 @@ internal sealed record SyntheticNefOptions
 
     public ushort Iso { get; init; } = 1600;
 
+    /// <summary>True to write the file (and its MakerNote) in big-endian byte order, as older Nikon bodies do.</summary>
+    public bool BigEndian { get; init; }
+
+    /// <summary>False to leave the body serial number out of the Exif directory (it stays in the MakerNote).</summary>
+    public bool IncludeExifSerial { get; init; } = true;
+
+    /// <summary>False to leave DateTimeOriginal (and so its offset) out: only the date of the main directory remains.</summary>
+    public bool IncludeDateTimeOriginal { get; init; } = true;
+
+    /// <summary>The OffsetTimeOriginal tag; when null it has the value of <see cref="OffsetTime"/>.</summary>
+    public string? OffsetTimeOriginal { get; init; }
+
+    /// <summary>True to add a small reduced raw image (16 x 8, 12 bit) as the first sub-directory, as the camera does.</summary>
+    public bool SmallCfaSubImage { get; init; }
+
+    /// <summary>A JPEG stored in the MakerNote, as the camera does for its smallest preview; null for none.</summary>
+    public byte[]? MakerNotePreviewJpeg { get; init; }
+
+    /// <summary>The Nikon compression record of the MakerNote (tag 0x96); null for none.</summary>
+    public byte[]? CompressionHeader { get; init; }
+
     /// <summary>The bytes of the raw strip; by default a repeatable pattern of <c>RawWidth * RawHeight * 2</c> bytes.</summary>
     public byte[]? RawStrip { get; init; }
 
@@ -77,22 +98,46 @@ internal static class SyntheticNef
         uint thumbnailOffset = 0, previewOffset = 0, rawOffset = 0, previewIfd = 0, rawIfd = 0, exifIfd = 0;
 
         byte[] makerNote = BuildMakerNote(options);
-        IfdBuilder exif = new IfdBuilder()
+        IfdBuilder exif = new IfdBuilder(options.BigEndian)
             .Rationals(33434, options.ExposureTime)
             .Rationals(33437, options.FNumber)
             .Shorts(34855, options.Iso)
-            .Text(36867, options.DateTime)
             .Text(36880, options.OffsetTime)
+            .Text(36881, options.OffsetTimeOriginal ?? options.OffsetTime)
             .Rationals(37386, options.FocalLength)
             .Undefined(37500, makerNote)
-            .Text(42033, options.SerialNumber)
             .Text(42036, options.LensModel);
-        IfdBuilder preview = new IfdBuilder()
+        if (options.IncludeExifSerial)
+        {
+            exif.Text(42033, options.SerialNumber);
+        }
+
+        if (options.IncludeDateTimeOriginal)
+        {
+            exif.Text(36867, options.DateTime);
+        }
+
+        uint smallIfd = 0;
+        IfdBuilder small = new IfdBuilder(options.BigEndian)
+            .Longs(254, 1)
+            .Longs(256, 16)
+            .Longs(257, 8)
+            .Shorts(258, 12)
+            .Shorts(259, (ushort)options.Compression)
+            .Shorts(262, CfaPhotometric)
+            .LazyLongs(273, 1, () => [thumbnailOffset])
+            .Shorts(277, 1)
+            .Longs(278, 8)
+            .Longs(279, 4)
+            .Shorts(33421, 2, 2)
+            .Bytes(33422, options.CfaPattern);
+
+        IfdBuilder preview = new IfdBuilder(options.BigEndian)
             .Longs(254, 1)
             .Shorts(259, 6)
             .LazyLongs(513, 1, () => [previewOffset])
             .Longs(514, (uint)options.PreviewJpeg.Length);
-        IfdBuilder raw = new IfdBuilder()
+        IfdBuilder raw = new IfdBuilder(options.BigEndian)
             .Longs(254, 0)
             .Longs(256, (uint)options.RawWidth)
             .Longs(257, (uint)options.RawHeight)
@@ -105,7 +150,7 @@ internal static class SyntheticNef
             .Longs(279, (uint)rawStrip.Length)
             .Shorts(33421, 2, 2)
             .Bytes(33422, options.CfaPattern);
-        IfdBuilder main = new IfdBuilder()
+        IfdBuilder main = new IfdBuilder(options.BigEndian)
             .Longs(254, 1)
             .Longs(256, 8)
             .Longs(257, 6)
@@ -121,7 +166,7 @@ internal static class SyntheticNef
             .Longs(279, (uint)thumbnail.Length)
             .Text(305, options.Software)
             .Text(306, options.DateTime)
-            .LazyLongs(330, 2, () => [previewIfd, rawIfd])
+            .LazyLongs(330, options.SmallCfaSubImage ? 3 : 2, () => options.SmallCfaSubImage ? [smallIfd, previewIfd, rawIfd] : [previewIfd, rawIfd])
             .LazyLongs(34665, 1, () => [exifIfd]);
 
         // Layout: header, main directory, sub-directories, Exif directory, then the pixel data, all on even offsets.
@@ -134,6 +179,12 @@ internal static class SyntheticNef
         position += raw.Size;
         exifIfd = (uint)position;
         position += exif.Size;
+        smallIfd = (uint)position;
+        if (options.SmallCfaSubImage)
+        {
+            position += small.Size;
+        }
+
         thumbnailOffset = (uint)position;
         position += thumbnail.Length;
         previewOffset = (uint)position;
@@ -142,14 +193,26 @@ internal static class SyntheticNef
         position += Even(rawStrip.Length);
 
         byte[] file = new byte[position];
-        file[0] = (byte)'I';
-        file[1] = (byte)'I';
-        BinaryPrimitives.WriteUInt16LittleEndian(file.AsSpan(2), 42);
-        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(4), (uint)mainIfd);
+        file[0] = file[1] = options.BigEndian ? (byte)'M' : (byte)'I';
+        if (options.BigEndian)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(file.AsSpan(2), 42);
+            BinaryPrimitives.WriteUInt32BigEndian(file.AsSpan(4), (uint)mainIfd);
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(file.AsSpan(2), 42);
+            BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(4), (uint)mainIfd);
+        }
         main.Serialize(mainIfd).CopyTo(file, mainIfd);
         preview.Serialize(previewIfd).CopyTo(file, previewIfd);
         raw.Serialize(rawIfd).CopyTo(file, rawIfd);
         exif.Serialize(exifIfd).CopyTo(file, exifIfd);
+        if (options.SmallCfaSubImage)
+        {
+            small.Serialize(smallIfd).CopyTo(file, smallIfd);
+        }
+
         thumbnail.CopyTo(file, thumbnailOffset);
         options.PreviewJpeg.CopyTo(file, previewOffset);
         rawStrip.CopyTo(file, rawOffset);
@@ -159,16 +222,34 @@ internal static class SyntheticNef
     /// <summary>The MakerNote: the "Nikon" header, then a TIFF header and a directory whose offsets count from that header.</summary>
     private static byte[] BuildMakerNote(SyntheticNefOptions options)
     {
-        IfdBuilder directory = new IfdBuilder()
+        IfdBuilder directory = new IfdBuilder(options.BigEndian)
             .Text(0x04, "RAW")
             .Rationals(0x0C, options.WhiteBalance)
             .Text(0x1D, options.SerialNumber)
             .Shorts(0x3D, options.BlackLevel)
             .Shorts(0x45, options.ActiveArea)
             .Longs(0xA7, options.ShutterCount);
+        if (options.CompressionHeader is { } compressionHeader)
+        {
+            directory.Undefined(0x96, compressionHeader);
+        }
+        uint previewIfdOffset = 0, previewJpegOffset = 0;
+        IfdBuilder? previewIfd = null;
+        if (options.MakerNotePreviewJpeg is { } noteJpeg)
+        {
+            directory.LazyLongs(0x11, 1, () => [previewIfdOffset]);
+            previewIfd = new IfdBuilder(options.BigEndian)
+                .LazyLongs(513, 1, () => [previewJpegOffset])
+                .Longs(514, (uint)noteJpeg.Length);
+            previewIfdOffset = (uint)(8 + directory.Size);
+            previewJpegOffset = previewIfdOffset + (uint)previewIfd.Size;
+        }
         byte[] header = [(byte)'N', (byte)'i', (byte)'k', (byte)'o', (byte)'n', 0, 2, 0x11, 0, 0];
-        byte[] tiffHeader = [(byte)'I', (byte)'I', 42, 0, 8, 0, 0, 0];
-        return [.. header, .. tiffHeader, .. directory.Serialize(8)];
+        byte[] tiffHeader = options.BigEndian
+            ? [(byte)'M', (byte)'M', 0, 42, 0, 0, 0, 8]
+            : [(byte)'I', (byte)'I', 42, 0, 8, 0, 0, 0];
+        byte[] note = [.. header, .. tiffHeader, .. directory.Serialize(8)];
+        return previewIfd is null ? note : [.. note, .. previewIfd.Serialize(previewIfdOffset), .. options.MakerNotePreviewJpeg!, .. new byte[options.MakerNotePreviewJpeg!.Length % 2]];
     }
 
     private static byte[] DefaultStrip(SyntheticNefOptions options)
