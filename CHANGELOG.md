@@ -39,3 +39,6 @@ change between minor versions.
   multipliers of the red, two green and blue photosites and where they were read (`RawWhiteBalanceSource`), taken from the plain
   record of the Nikon MakerNote. It is null when the file holds none or one that is not plausible (non-positive, tiny or very large
   multipliers). It is not applied to the samples. The record that Nikon cameras scramble with the serial number is not read yet.
+- The release mechanics: a `Release` workflow, started by a version tag, that checks the tag (on `main`, CI passed, equal to the
+  version of the project, with a section in this changelog), tests, packs and publishes to nuget.org by trusted publishing
+  (no key stored), then creates the GitHub release; the one-time setup is described in `RELEASING.md`.

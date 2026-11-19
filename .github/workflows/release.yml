@@ -1,0 +1,147 @@
+name: Release
+
+# Publishes Eleris.RawNet to nuget.org when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
+# The tag must match <Version> in src/Eleris.RawNet/Eleris.RawNet.csproj, be on main, and have passed the CI. See RELEASING.md.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: The tag is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::The tag ${GITHUB_REF_NAME} is not on main"
+            exit 1
+          fi
+      - name: The CI passed on the tagged commit
+        run: |
+          conclusion=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status completed --json conclusion --jq 'map(.conclusion) | if any(. == "success") then "success" else "none" end')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::No successful CI run for ${GITHUB_SHA}: wait for the CI of main, then push the tag again"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: The tag matches the version of the project, which has a section in the changelog
+        id: version
+        run: |
+          version=$(dotnet msbuild src/Eleris.RawNet -getProperty:Version)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not match the project version v$version"
+            exit 1
+          fi
+          if ! grep -qx "## $version" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section '## $version'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: dotnet build Eleris.RawNet.slnx -c Release
+      - name: Test
+        run: dotnet test Eleris.RawNet.slnx -c Release --no-build
+
+  pack:
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Pack (package validation is on)
+        run: dotnet pack src/Eleris.RawNet -c Release -o artifacts
+      - name: The package has the version of the tag, holds the library, its documentation file and the readme, and has no dependency
+        run: |
+          test -f "artifacts/Eleris.RawNet.${{ needs.check.outputs.version }}.nupkg"
+          unzip -Z1 artifacts/Eleris.RawNet.*.nupkg | tee listing.txt
+          if unzip -Z1 artifacts/Eleris.RawNet.*.nupkg | grep -vE '^(lib/net10\.0/Eleris\.RawNet\.(dll|xml)|PACKAGE\.md|Eleris\.RawNet\.nuspec|\[Content_Types\]\.xml|_rels/\.rels|package/.*)$'; then
+            echo "::error::Unexpected file in the package"
+            exit 1
+          fi
+          grep -qx "lib/net10.0/Eleris.RawNet.dll" listing.txt
+          grep -qx "lib/net10.0/Eleris.RawNet.xml" listing.txt
+          grep -qx "PACKAGE.md" listing.txt
+          if unzip -p artifacts/Eleris.RawNet.*.nupkg Eleris.RawNet.nuspec | grep -q "<dependency"; then
+            echo "::error::The package has dependencies"
+            exit 1
+          fi
+      - name: The notes of the release, from the changelog
+        run: |
+          awk -v v="## ${{ needs.check.outputs.version }}" '$0 == v { on = 1; next } /^## / && on { exit } on' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nuget-package
+          path: |
+            artifacts/
+            release-notes.md
+          if-no-files-found: error
+
+  publish:
+    needs: [check, pack]
+    runs-on: ubuntu-latest
+    # The environment `nuget` has required reviewers, who approve each publication by hand (see RELEASING.md). No API key is
+    # stored: the job exchanges its OIDC token for a temporary key (trusted publishing policy on nuget.org).
+    timeout-minutes: 15
+    environment: nuget
+    permissions:
+      contents: write
+      id-token: write   # the OIDC token that nuget.org checks against the trusted publishing policy
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nuget-package
+          path: release
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x   # only `dotnet nuget push`, which does not depend on the SDK of the build
+      # The key lasts one hour: asked for right before the push, after the approval of the environment.
+      - name: NuGet login (OIDC token to a temporary API key)
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ secrets.NUGET_USER }}   # the nuget.org profile name, not an e-mail address
+      - name: Push to nuget.org (the .snupkg symbols follow the .nupkg)
+        run: dotnet nuget push "release/artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+      - name: GitHub release, with the notes of the changelog
+        run: gh release create "$GITHUB_REF_NAME" release/artifacts/* --title "$GITHUB_REF_NAME" --notes-file release/release-notes.md ${{ contains(needs.check.outputs.version, '-') && '--prerelease' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
