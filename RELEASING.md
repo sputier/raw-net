@@ -50,7 +50,9 @@ its symbols (`.snupkg`) and creates the GitHub release with the notes of the cha
 
 A published version cannot be replaced. It can only be *unlisted* on nuget.org, so a mistake costs a new version number.
 
-## After the first publication
+## API compatibility
 
-To protect later versions against an accidental API break, set `<PackageValidationBaselineVersion>` in the project to the last
-published version: package validation then compares the new package with it.
+`<PackageValidationBaselineVersion>` in the project is the last published version: package validation compares each new
+package with it and fails the pack on an API break (for example removing a public member). After publishing a version, set it to that
+version in the next change; for a deliberate break before 1.0, raise the version number accordingly and set the baseline once
+the new version is published.
