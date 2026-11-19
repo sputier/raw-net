@@ -20,3 +20,8 @@ change between minor versions.
 - The embedded JPEG previews: `RawFile.Previews` (largest first), `ReadPreviewJpeg()` for the largest, `ReadPreviewJpeg(preview)`
   and a variant that fills a buffer of the caller without allocating. They are found in the sub-directories and in the Nikon
   MakerNote; one that does not lie inside the file is left out, and data that does not start with a JPEG start-of-image marker is reported as corrupt.
+- Decoding of an uncompressed raw image (12 or 14 bits per sample, packed most significant bit first, each row on a byte
+  boundary): `RawFile.Decode()` gives a `RawImage` (the mosaic of `ushort`, its size, active area, colour filter pattern and bit
+  depth), and `Decode(Span<ushort>)` fills a buffer of the caller. The Nikon compression is reported with an
+  `UnsupportedCompressionException` until it is decoded. The packing follows the TIFF rules; it is checked with synthetic files
+  and has not yet been checked on a camera file.

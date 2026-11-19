@@ -40,7 +40,7 @@ internal sealed class NefStructureReader : INefStructureReader
         }
 
         var previews = new List<ByteRange>();
-        RawImage raw = ReadRawImage(reader, main, source.Length, previews);
+        RawSubImage raw = ReadRawImage(reader, main, source.Length, previews);
         Ifd? exif = null;
         if (main.TryGet(ExifTag, out IfdEntry exifEntry) && reader.TryReadInteger(exifEntry, 0, out long exifOffset))
         {
@@ -122,9 +122,9 @@ internal sealed class NefStructureReader : INefStructureReader
         return result;
     }
 
-    private sealed record RawImage(int Width, int Height, int Bits, int Compression, CfaPattern Pattern, ByteRange[] Strips);
+    private sealed record RawSubImage(int Width, int Height, int Bits, int Compression, CfaPattern Pattern, ByteRange[] Strips);
 
-    private static RawImage ReadRawImage(TiffReader reader, Ifd main, long fileLength, List<ByteRange> previews)
+    private static RawSubImage ReadRawImage(TiffReader reader, Ifd main, long fileLength, List<ByteRange> previews)
     {
         if (!main.TryGet(SubIfdsTag, out IfdEntry subEntry))
         {
@@ -193,7 +193,7 @@ internal sealed class NefStructureReader : INefStructureReader
             throw new CorruptRawFileException("The raw image has an impossible compression code");
         }
 
-        return new RawImage((int)w, (int)h, (int)bits, (int)compression, ReadPattern(reader, best), ReadStrips(reader, best, fileLength));
+        return new RawSubImage((int)w, (int)h, (int)bits, (int)compression, ReadPattern(reader, best), ReadStrips(reader, best, fileLength));
     }
 
     private static CfaPattern ReadPattern(TiffReader reader, Ifd raw)

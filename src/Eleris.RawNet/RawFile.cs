@@ -80,6 +80,49 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
         return preview.ByteCount;
     }
 
+    /// <summary>Decodes the raw image into a new array.</summary>
+    /// <param name="cancellationToken">Cancels the decoding.</param>
+    /// <returns>The mosaic and what describes it.</returns>
+    /// <exception cref="UnsupportedCompressionException">The samples use a compression the library does not decode yet; only uncompressed samples are decoded for now.</exception>
+    /// <exception cref="UnsupportedFormatException">The samples have a size the library does not decode (12 and 14 bits are).</exception>
+    /// <exception cref="CorruptRawFileException">The strips of the raw image are too short for the image.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
+    /// <exception cref="OperationCanceledException">The decoding was cancelled.</exception>
+    /// <remarks>The array of a full-frame image is tens of megabytes; to decode many images, use <see cref="Decode(Span{ushort}, CancellationToken)"/> with a buffer you reuse.</remarks>
+    public RawImage Decode(CancellationToken cancellationToken = default)
+    {
+        PrepareDecode();
+        RawMetadata metadata = Metadata;
+        ushort[] mosaic = GC.AllocateUninitializedArray<ushort>(checked(metadata.ImageWidth * metadata.ImageHeight));
+        UncompressedDecoder.Decode(_source, _structure, mosaic, cancellationToken);
+        return new RawImage(metadata.ImageWidth, metadata.ImageHeight, metadata.ActiveArea, metadata.CfaPattern, metadata.BitsPerSample, mosaic);
+    }
+
+    /// <summary>Decodes the raw image into a buffer of the caller, row after row, without allocating the mosaic.</summary>
+    /// <param name="destination">The buffer; it must hold at least <see cref="RawMetadata.ImageWidth"/> times <see cref="RawMetadata.ImageHeight"/> samples.</param>
+    /// <param name="cancellationToken">Cancels the decoding.</param>
+    /// <returns>The number of samples written.</returns>
+    /// <exception cref="ArgumentException"><paramref name="destination"/> is too small.</exception>
+    /// <exception cref="UnsupportedCompressionException">The samples use a compression the library does not decode yet; only uncompressed samples are decoded for now.</exception>
+    /// <exception cref="UnsupportedFormatException">The samples have a size the library does not decode (12 and 14 bits are).</exception>
+    /// <exception cref="CorruptRawFileException">The strips of the raw image are too short for the image.</exception>
+    /// <exception cref="ObjectDisposedException">The file is disposed.</exception>
+    /// <exception cref="OperationCanceledException">The decoding was cancelled.</exception>
+    /// <remarks>When the decoding fails, <paramref name="destination"/> may be partly written. Disposing the file during a decoding is not supported.</remarks>
+    public int Decode(Span<ushort> destination, CancellationToken cancellationToken = default)
+    {
+        PrepareDecode();
+        RawMetadata metadata = Metadata;
+        int count = checked(metadata.ImageWidth * metadata.ImageHeight);
+        if (destination.Length < count)
+        {
+            throw new ArgumentException($"The buffer holds {destination.Length} samples and the image has {count}.", nameof(destination));
+        }
+
+        UncompressedDecoder.Decode(_source, _structure, destination[..count], cancellationToken);
+        return count;
+    }
+
     /// <summary>
     /// Opens a raw file from a path. The structure of the file is checked as a whole: a file cut inside its raw data fails with a
     /// <see cref="CorruptRawFileException"/> even though its metadata could be read.
@@ -156,6 +199,24 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
     {
         Dispose();
         return ValueTask.CompletedTask;
+    }
+
+    // Everything that can be refused before a byte of the image is read or allocated.
+    private void PrepareDecode()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        RawMetadata metadata = Metadata;
+        if (metadata.Compression != RawCompression.Uncompressed)
+        {
+            throw new UnsupportedCompressionException(metadata.CompressionCode, metadata.Compression == RawCompression.NikonCompressed ? "Nikon compressed" : null);
+        }
+
+        if (!UncompressedDecoder.IsSupported(metadata.BitsPerSample))
+        {
+            throw new UnsupportedFormatException($"Uncompressed samples of {metadata.BitsPerSample} bits are not decoded (12 and 14 bits are).");
+        }
+
+        UncompressedDecoder.CheckStrips(_structure);
     }
 
     private void CheckPreview(RawPreview preview)
