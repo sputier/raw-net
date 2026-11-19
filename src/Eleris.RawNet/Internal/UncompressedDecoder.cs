@@ -19,9 +19,9 @@ internal static class UncompressedDecoder
 
     /// <summary>
     /// Checks that the image can be decoded, before anything is allocated for it: its samples fit in an array, its strips do not
-    /// overlap (so the bytes they hold are distinct bytes of the file) and they hold the whole image.
+    /// overlap (so the bytes they hold are distinct bytes of the file) and they hold at least <c>minimumBytes</c> (what the image needs at the very least, which bounds what is allocated by the size of the file).
     /// </summary>
-    public static void CheckStrips(NefStructure structure)
+    public static void CheckStrips(NefStructure structure, long? minimumBytes = null)
     {
         RawMetadata metadata = structure.Metadata;
         if ((long)metadata.ImageWidth * metadata.ImageHeight > Array.MaxLength)
@@ -29,7 +29,7 @@ internal static class UncompressedDecoder
             throw new UnsupportedFormatException("The raw image has more samples than an array can hold.");
         }
 
-        long needed = RowBytes(metadata.ImageWidth, metadata.BitsPerSample) * metadata.ImageHeight;
+        long needed = minimumBytes ?? RowBytes(metadata.ImageWidth, metadata.BitsPerSample) * metadata.ImageHeight;
         ByteRange[] sorted = [.. structure.RawStrips];
         Array.Sort(sorted, static (a, b) => a.Offset.CompareTo(b.Offset));
         long available = 0, end = 0;
@@ -97,38 +97,6 @@ internal static class UncompressedDecoder
 
             held -= bits;
             samples[i] = (ushort)((uint)(accumulator >> held) & mask);
-        }
-    }
-
-    /// <summary>The strips of the raw image read as one continuous run of bytes.</summary>
-    private sealed class StripStream(ByteSource source, IReadOnlyList<ByteRange> strips)
-    {
-        private int _strip;
-        private long _used;
-
-        public void ReadExactly(Span<byte> destination)
-        {
-            while (destination.Length > 0)
-            {
-                if (_strip >= strips.Count)
-                {
-                    throw new EndOfStreamException();
-                }
-
-                ByteRange range = strips[_strip];
-                long left = range.Length - _used;
-                if (left == 0)
-                {
-                    _strip++;
-                    _used = 0;
-                    continue;
-                }
-
-                int count = (int)Math.Min(left, destination.Length);
-                source.ReadExactly(range.Offset + _used, destination[..count]);
-                _used += count;
-                destination = destination[count..];
-            }
         }
     }
 }

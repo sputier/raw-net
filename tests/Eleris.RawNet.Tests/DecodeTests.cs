@@ -171,7 +171,7 @@ public class DecodeTests
         Assert.Equal(expected, decoded);
     }
 
-    private static NefStructure Structure(int width, int height, int bits, List<ByteRange> strips) =>
+    internal static NefStructure Structure(int width, int height, int bits, List<ByteRange> strips, RawCompression compression = RawCompression.Uncompressed) =>
         new(
             new RawMetadata
             {
@@ -183,8 +183,8 @@ public class DecodeTests
                 ActiveArea = new RawRectangle(0, 0, width, height),
                 CfaPattern = CfaPattern.Rggb,
                 BitsPerSample = bits,
-                Compression = RawCompression.Uncompressed,
-                CompressionCode = 1,
+                Compression = compression,
+                CompressionCode = (int)compression,
             },
             strips,
             []);
@@ -272,7 +272,7 @@ public class DecodeTests
         using RawFile nikon = RawFile.Open(SyntheticNef.Build());
         var error = Assert.Throws<UnsupportedCompressionException>(() => nikon.Decode());
         Assert.Equal(34713, error.Code);
-        Assert.Equal("Nikon compressed", error.Name);
+        Assert.Equal("Nikon compressed, variant not decoded", error.Name);
 
         using RawFile other = RawFile.Open(SyntheticNef.Build(new SyntheticNefOptions { Compression = 7 }));
         var unknown = Assert.Throws<UnsupportedCompressionException>(() => other.Decode(new ushort[64 * 48]));
@@ -360,17 +360,4 @@ public class DecodeTests
         }
     }
 
-    [SkippableFact]
-    public void A_real_file_that_is_compressed_is_refused_cleanly_until_its_compression_is_decoded()
-    {
-        string? directory = Environment.GetEnvironmentVariable("RAWNET_SAMPLES_DIR");
-        Skip.If(string.IsNullOrEmpty(directory) || !Directory.Exists(directory), "RAWNET_SAMPLES_DIR is not set to a folder.");
-        string? path = Directory.EnumerateFiles(directory!, "*.NEF").Order(StringComparer.Ordinal).FirstOrDefault();
-        Skip.If(path is null, "No .NEF file in RAWNET_SAMPLES_DIR.");
-
-        using RawFile raw = RawFile.Open(path!);
-        Skip.If(raw.Metadata.Compression == RawCompression.Uncompressed, "The sample is uncompressed.");
-
-        Assert.Throws<UnsupportedCompressionException>(() => raw.Decode());
-    }
 }

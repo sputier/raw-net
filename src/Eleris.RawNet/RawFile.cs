@@ -94,7 +94,7 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
         PrepareDecode();
         RawMetadata metadata = Metadata;
         ushort[] mosaic = GC.AllocateUninitializedArray<ushort>(checked(metadata.ImageWidth * metadata.ImageHeight));
-        UncompressedDecoder.Decode(_source, _structure, mosaic, cancellationToken);
+        DecodeSamples(mosaic, cancellationToken);
         return new RawImage(metadata.ImageWidth, metadata.ImageHeight, metadata.ActiveArea, metadata.CfaPattern, metadata.BitsPerSample, mosaic);
     }
 
@@ -119,7 +119,7 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
             throw new ArgumentException($"The buffer holds {destination.Length} samples and the image has {count}.", nameof(destination));
         }
 
-        UncompressedDecoder.Decode(_source, _structure, destination[..count], cancellationToken);
+        DecodeSamples(destination[..count], cancellationToken);
         return count;
     }
 
@@ -206,17 +206,43 @@ public sealed class RawFile : IDisposable, IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         RawMetadata metadata = Metadata;
-        if (metadata.Compression != RawCompression.Uncompressed)
+        if (metadata.Compression == RawCompression.NikonCompressed)
         {
-            throw new UnsupportedCompressionException(metadata.CompressionCode, metadata.Compression == RawCompression.NikonCompressed ? "Nikon compressed" : null);
+            if (_structure.CompressionHeader is not { IsLossless: true })
+            {
+                throw new UnsupportedCompressionException(metadata.CompressionCode, "Nikon compressed, variant not decoded");
+            }
+
+            if (!NikonLosslessDecoder.IsSupported(metadata.BitsPerSample))
+            {
+                throw new UnsupportedFormatException($"Lossless compressed samples of {metadata.BitsPerSample} bits are not decoded (12 and 14 bits are).");
+            }
+        }
+        else if (metadata.Compression == RawCompression.Uncompressed)
+        {
+            if (!UncompressedDecoder.IsSupported(metadata.BitsPerSample))
+            {
+                throw new UnsupportedFormatException($"Uncompressed samples of {metadata.BitsPerSample} bits are not decoded (12 and 14 bits are).");
+            }
+        }
+        else
+        {
+            throw new UnsupportedCompressionException(metadata.CompressionCode, null);
         }
 
-        if (!UncompressedDecoder.IsSupported(metadata.BitsPerSample))
-        {
-            throw new UnsupportedFormatException($"Uncompressed samples of {metadata.BitsPerSample} bits are not decoded (12 and 14 bits are).");
-        }
+        UncompressedDecoder.CheckStrips(_structure, metadata.Compression == RawCompression.Uncompressed ? null : NikonLosslessDecoder.MinimumBytes(metadata.ImageWidth, metadata.ImageHeight, metadata.BitsPerSample));
+    }
 
-        UncompressedDecoder.CheckStrips(_structure);
+    private void DecodeSamples(Span<ushort> destination, CancellationToken cancellationToken)
+    {
+        if (Metadata.Compression == RawCompression.NikonCompressed)
+        {
+            NikonLosslessDecoder.Decode(_source, _structure, _structure.CompressionHeader!.Value, destination, cancellationToken);
+        }
+        else
+        {
+            UncompressedDecoder.Decode(_source, _structure, destination, cancellationToken);
+        }
     }
 
     private void CheckPreview(RawPreview preview)
