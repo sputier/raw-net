@@ -23,5 +23,11 @@ change between minor versions.
 - Decoding of an uncompressed raw image (12 or 14 bits per sample, packed most significant bit first, each row on a byte
   boundary): `RawFile.Decode()` gives a `RawImage` (the mosaic of `ushort`, its size, active area, colour filter pattern and bit
   depth), and `Decode(Span<ushort>)` fills a buffer of the caller. The Nikon compression is reported with an
-  `UnsupportedCompressionException` until it is decoded. The packing follows the TIFF rules; it is checked with synthetic files
+  `UnsupportedCompressionException` unless it is the lossless variant (see below). The packing follows the TIFF rules; it is checked with synthetic files
   and has not yet been checked on a camera file.
+- Decoding of the lossless Nikon compression (TIFF compression 34713, 12 and 14 bits), through the same `RawFile.Decode`. The
+  format facts it relies on (the prefix codes, the bit order, the difference and prediction rules, the compression record of
+  the MakerNote) are written in the documentation of `NikonLosslessDecoder`; the code is written from them. Checked on 570 real
+  files of a Nikon Z 6 (every row decoded, every sample in range, the stream ending at the end of its strip), by an
+  encoder-decoder round trip on synthetic files, and with damaged files. Decoding a 24-megapixel image into a reused buffer
+  takes about 0.26 s and allocates nothing but a few bytes. The lossy variant is reported with an `UnsupportedCompressionException`.

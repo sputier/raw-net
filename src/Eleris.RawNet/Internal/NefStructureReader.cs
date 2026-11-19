@@ -13,7 +13,8 @@ internal sealed class NefStructureReader : INefStructureReader
     private const ushort JpegOffsetTag = 513, JpegLengthTag = 514;
     private const int MaxPreviewBytes = 64 * 1024 * 1024;
     private const ushort NikonPreviewTag = 0x11;
-    private const ushort NikonSerialTag = 0x1D, NikonActiveAreaTag = 0x45, NikonShutterCountTag = 0xA7;
+    private const ushort NikonSerialTag = 0x1D, NikonActiveAreaTag = 0x45, NikonShutterCountTag = 0xA7, NikonCompressionTag = 0x96;
+    private const int NikonHeaderBytes = 10;
     private const int CfaPhotometric = 32803;
     private const int MaxSubDirectories = 64;
     private const int MaxStrips = 65536;
@@ -73,6 +74,22 @@ internal sealed class NefStructureReader : INefStructureReader
             }
         }
 
+        NikonCompressionHeader? compression = null;
+        if (makerNote is { } header
+            && header.Directory.TryGet(NikonCompressionTag, out IfdEntry compressionEntry)
+            && compressionEntry.ByteLength >= NikonHeaderBytes)
+        {
+            Span<byte> bytes = stackalloc byte[NikonHeaderBytes];
+            source.ReadExactly(compressionEntry.ValueOffset, bytes);
+            compression = new NikonCompressionHeader(
+                bytes[0],
+                bytes[1],
+                header.Reader.ReadUInt16(bytes[2..]),
+                header.Reader.ReadUInt16(bytes[4..]),
+                header.Reader.ReadUInt16(bytes[6..]),
+                header.Reader.ReadUInt16(bytes[8..]));
+        }
+
         var metadata = new RawMetadata
         {
             MediaType = RawMediaTypes.NikonNef,
@@ -96,7 +113,7 @@ internal sealed class NefStructureReader : INefStructureReader
             Compression = Enum.IsDefined<RawCompression>((RawCompression)raw.Compression) ? (RawCompression)raw.Compression : RawCompression.Unknown,
             CompressionCode = raw.Compression,
         };
-        return new NefStructure(metadata, raw.Strips, LargestFirst(previews));
+        return new NefStructure(metadata, raw.Strips, LargestFirst(previews), compression);
     }
 
     // The previews, largest first, each place once (a preview can be listed by several directories).

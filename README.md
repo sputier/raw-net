@@ -47,7 +47,7 @@ if (file.Previews.Count > 0)
 }
 ```
 
-An uncompressed raw image is decoded to its mosaic of 16-bit samples, unscaled; the Nikon compression is not decoded yet:
+The raw image is decoded to its mosaic of 16-bit samples, unscaled (uncompressed, and the lossless Nikon compression of 12 and 14 bit images):
 
 ```csharp
 RawImage image = file.Decode();                              // image.Mosaic, Width, Height, ActiveArea, CfaPattern
@@ -56,7 +56,7 @@ file.Decode(mine);                                           // or into a buffer
 ```
 
 What is implemented, and what is next, is tracked in the [issues](https://github.com/sputier/raw-net/issues): the metadata, the
-previews and the uncompressed mosaic work today; the Nikon compression comes next.
+previews and the mosaic work today; the levels and the white balance come next.
 
 ## Build and test
 

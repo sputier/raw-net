@@ -68,6 +68,9 @@ internal sealed record SyntheticNefOptions
     /// <summary>A JPEG stored in the MakerNote, as the camera does for its smallest preview; null for none.</summary>
     public byte[]? MakerNotePreviewJpeg { get; init; }
 
+    /// <summary>The Nikon compression record of the MakerNote (tag 0x96); null for none.</summary>
+    public byte[]? CompressionHeader { get; init; }
+
     /// <summary>The bytes of the raw strip; by default a repeatable pattern of <c>RawWidth * RawHeight * 2</c> bytes.</summary>
     public byte[]? RawStrip { get; init; }
 
@@ -226,6 +229,10 @@ internal static class SyntheticNef
             .Shorts(0x3D, options.BlackLevel)
             .Shorts(0x45, options.ActiveArea)
             .Longs(0xA7, options.ShutterCount);
+        if (options.CompressionHeader is { } compressionHeader)
+        {
+            directory.Undefined(0x96, compressionHeader);
+        }
         uint previewIfdOffset = 0, previewJpegOffset = 0;
         IfdBuilder? previewIfd = null;
         if (options.MakerNotePreviewJpeg is { } noteJpeg)
